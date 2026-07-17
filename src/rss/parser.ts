@@ -16,10 +16,12 @@ function decodeEntities(text: string): string {
   return text
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
-    .replace(/&amp;/g, "&")
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
-    .replace(/&apos;/g, "'");
+    .replace(/&apos;/g, "'")
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_, dec) => String.fromCodePoint(parseInt(dec, 10)))
+    .replace(/&amp;/g, "&");
 }
 
 function stripCdata(text: string): string {
@@ -44,11 +46,48 @@ function extractAttr(block: string, tag: string, attr: string): string | null {
   return match ? match[1] : null;
 }
 
+function extractAllTags(block: string, tag: string): string[] {
+  const re = new RegExp(`<${tag}(?:\\s[^>]*)?/?>`, "gi");
+  return block.match(re) || [];
+}
+
+function normalizeDate(raw: string | null): string | null {
+  if (!raw) return null;
+  const d = new Date(raw);
+  if (isNaN(d.getTime())) return null;
+  return d.toISOString();
+}
+
 function truncatePerex(text: string | null): string | null {
   if (!text) return null;
   const clean = stripHtmlTags(text).replace(/\s+/g, " ").trim();
   if (clean.length <= PEREX_MAX_LENGTH) return clean;
   return clean.slice(0, PEREX_MAX_LENGTH).trim() + "…";
+}
+
+const TARGET_MEDIA_WIDTH = 460;
+
+function pickMediumMediaContent(block: string): string | null {
+  const tags = extractAllTags(block, "media:content");
+  if (tags.length === 0) return null;
+
+  let best: { url: string; width: number | null } | null = null;
+  for (const tag of tags) {
+    const urlMatch = tag.match(/url=["']([^"']+)["']/i);
+    if (!urlMatch) continue;
+    const widthMatch = tag.match(/width=["']?(\d+)["']?/i);
+    const width = widthMatch ? parseInt(widthMatch[1], 10) : null;
+    const candidate = { url: urlMatch[1], width };
+    if (best === null) {
+      best = candidate;
+      continue;
+    }
+    if (width === null) continue; // prefer entries with known width
+    if (best.width === null || Math.abs(width - TARGET_MEDIA_WIDTH) < Math.abs(best.width - TARGET_MEDIA_WIDTH)) {
+      best = candidate;
+    }
+  }
+  return best ? best.url : null;
 }
 
 function extractImage(block: string): string | null {
@@ -61,14 +100,20 @@ function extractImage(block: string): string | null {
   if (enclosureUrl && enclosureType && enclosureType.startsWith("image/")) {
     return enclosureUrl;
   }
-  // media:content / media:thumbnail
-  const mediaContent = extractAttr(block, "media:content", "url");
+  // media:content (pick the width closest to TARGET_MEDIA_WIDTH)
+  const mediaContent = pickMediumMediaContent(block);
   if (mediaContent) return mediaContent;
+  // media:thumbnail
   const mediaThumb = extractAttr(block, "media:thumbnail", "url");
   if (mediaThumb) return mediaThumb;
-  // <img> inside description/content
-  const imgMatch = block.match(/<img[^>]+src=["']([^"']+)["']/i);
-  if (imgMatch) return imgMatch[1];
+  // <img> inside description/content:encoded (CDATA-unwrapped)
+  const description = extractTag(block, "description");
+  const contentEncoded = extractTag(block, "content:encoded");
+  for (const text of [description, contentEncoded]) {
+    if (!text) continue;
+    const imgMatch = text.match(/<img[^>]+src=["']([^"']+)["']/i);
+    if (imgMatch) return imgMatch[1];
+  }
   return null;
 }
 
@@ -89,7 +134,7 @@ function parseRssItems(xml: string): ParsedArticle[] {
       title,
       perex: truncatePerex(description),
       imageUrl: extractImage(block),
-      publishedAt: extractTag(block, "pubDate") || extractTag(block, "dc:date"),
+      publishedAt: normalizeDate(extractTag(block, "pubDate") || extractTag(block, "dc:date")),
     });
   }
   return items;
@@ -109,7 +154,7 @@ function parseAtomEntries(xml: string): ParsedArticle[] {
       title,
       perex: truncatePerex(summary),
       imageUrl: extractImage(block),
-      publishedAt: extractTag(block, "published") || extractTag(block, "updated"),
+      publishedAt: normalizeDate(extractTag(block, "published") || extractTag(block, "updated")),
     });
   }
   return items;

@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS articles (
   title TEXT NOT NULL,
   perex TEXT,
   image_url TEXT,
+  image_scrape_attempted INTEGER NOT NULL DEFAULT 0,
   published_at TEXT,
   fetched_at TEXT NOT NULL DEFAULT (datetime('now')),
   UNIQUE (feed_url, link)

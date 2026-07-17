@@ -5,30 +5,65 @@
   const presetToggles = document.querySelectorAll(".preset-toggle");
   if (presetToggles.length === 0 && !document.getElementById("discover-btn")) return; // not on admin page
 
+  const selectAllToggle = document.getElementById("select-all-sources");
+
+  function updateSelectAllState() {
+    if (!selectAllToggle) return;
+    const checkedCount = Array.from(presetToggles).filter((t) => t.checked).length;
+    selectAllToggle.checked = checkedCount === presetToggles.length;
+    selectAllToggle.indeterminate = checkedCount > 0 && checkedCount < presetToggles.length;
+  }
+
+  async function togglePreset(toggle) {
+    await fetch("/admin/feeds/toggle-preset", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        url: toggle.dataset.url,
+        name: toggle.dataset.name,
+        subscribe: toggle.checked,
+      }),
+    });
+  }
+
   presetToggles.forEach((toggle) => {
     toggle.addEventListener("change", async () => {
-      await fetch("/admin/feeds/toggle-preset", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          url: toggle.dataset.url,
-          name: toggle.dataset.name,
-          subscribe: toggle.checked,
-        }),
-      });
+      await togglePreset(toggle);
+      updateSelectAllState();
     });
   });
 
-  document.querySelectorAll(".remove-feed").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      await fetch("/admin/feeds/remove", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: btn.dataset.url }),
-      });
-      btn.closest("div.flex")?.remove();
+  if (selectAllToggle) {
+    updateSelectAllState();
+    selectAllToggle.addEventListener("change", async () => {
+      const shouldCheck = selectAllToggle.checked;
+      await Promise.all(
+        Array.from(presetToggles).map(async (toggle) => {
+          if (toggle.checked === shouldCheck) return;
+          toggle.checked = shouldCheck;
+          await togglePreset(toggle);
+        })
+      );
+      updateSelectAllState();
     });
-  });
+  }
+
+  const refreshNowBtn = document.getElementById("refresh-now-btn");
+  if (refreshNowBtn) {
+    refreshNowBtn.addEventListener("click", async () => {
+      refreshNowBtn.disabled = true;
+      refreshNowBtn.textContent = "Refreshing…";
+      try {
+        const res = await fetch("/admin/feeds/refresh", { method: "POST" });
+        const data = await res.json();
+        alert(`Refetched ${data.feedsAttempted} feeds, upserted ${data.articlesUpserted} articles, scraped ${data.imagesScraped} fallback images.`);
+        location.reload();
+      } finally {
+        refreshNowBtn.disabled = false;
+        refreshNowBtn.textContent = "Refresh Now";
+      }
+    });
+  }
 
   const discoverBtn = document.getElementById("discover-btn");
   const customUrlInput = document.getElementById("custom-url");
@@ -82,17 +117,17 @@
   const feedList = document.getElementById("feed-list");
   if (!feedList) return; // not on the home page
 
+  const validViews = ["new", "readlater", "favorites", "read"];
+  const initialView = new URLSearchParams(location.search).get("view");
   const state = {
     source: new URLSearchParams(location.search).get("source") || "all",
-    hideRead: new URLSearchParams(location.search).get("hideRead") === "1",
-    view: new URLSearchParams(location.search).get("view") || "feed",
+    view: validViews.includes(initialView) ? initialView : "new",
   };
 
   function currentParams() {
     const p = new URLSearchParams();
     p.set("source", state.source);
-    if (state.hideRead) p.set("hideRead", "1");
-    if (state.view !== "feed") p.set("view", state.view);
+    if (state.view !== "new") p.set("view", state.view);
     return p;
   }
 
@@ -119,61 +154,26 @@
     });
   });
 
-  // --- Hide Read toggle ---
-  const hideReadBtn = document.getElementById("toggle-hideread");
-  if (hideReadBtn) {
-    hideReadBtn.addEventListener("click", () => {
-      state.hideRead = !state.hideRead;
-      hideReadBtn.classList.toggle("bg-gray-900", state.hideRead);
-      hideReadBtn.classList.toggle("text-white", state.hideRead);
-      hideReadBtn.classList.toggle("bg-gray-100", !state.hideRead);
-      hideReadBtn.classList.toggle("text-gray-600", !state.hideRead);
-      reloadFeed();
-    });
-  }
-
-  // --- Read Later / Favorites view toggles (mutually exclusive tabs) ---
-  const readLaterBtn = document.getElementById("toggle-readlater");
-  const favoritesBtn = document.getElementById("toggle-favorites");
+  // --- Mutually-exclusive tab switcher: New Articles / For Later / Favourites / Already Read ---
+  const tabBtns = Array.from(document.querySelectorAll(".tab-btn"));
 
   function setViewButtons() {
-    [readLaterBtn, favoritesBtn].forEach((btn) => {
-      if (!btn) return;
+    tabBtns.forEach((btn) => {
       const active = btn.dataset.view === state.view;
-      btn.classList.toggle("bg-gray-900", active);
-      btn.classList.toggle("text-white", active);
-      btn.classList.toggle("bg-gray-100", !active);
-      btn.classList.toggle("text-gray-600", !active);
+      btn.classList.toggle("text-gray-900", active);
+      btn.classList.toggle("font-semibold", active);
+      btn.classList.toggle("text-gray-500", !active);
     });
   }
 
-  if (readLaterBtn) {
-    readLaterBtn.addEventListener("click", () => {
-      state.view = state.view === "readlater" ? "feed" : "readlater";
+  tabBtns.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (state.view === btn.dataset.view) return;
+      state.view = btn.dataset.view;
       setViewButtons();
       reloadFeed();
     });
-  }
-  if (favoritesBtn) {
-    favoritesBtn.addEventListener("click", () => {
-      state.view = state.view === "favorites" ? "feed" : "favorites";
-      setViewButtons();
-      reloadFeed();
-    });
-  }
-
-  // --- Mark all as read ---
-  const markAllBtn = document.getElementById("mark-all-read");
-  if (markAllBtn) {
-    markAllBtn.addEventListener("click", async () => {
-      await fetch("/articles/mark-all-read", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ source: state.source, view: state.view }),
-      });
-      reloadFeed();
-    });
-  }
+  });
 
   // --- Per-card interactions (read-later, favorite, mark-as-read-on-click) ---
   function bindCardEvents() {
@@ -197,6 +197,8 @@
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ link }),
           });
+          // "New Articles" and "For Later" both drop the article once it's read.
+          if (state.view === "new" || state.view === "readlater") reloadFeed();
         });
       }
 
@@ -228,7 +230,7 @@
             body: JSON.stringify(meta),
           });
           const data = await res.json();
-          favoriteToggle.classList.toggle("bg-amber-500", data.active);
+          favoriteToggle.classList.toggle("bg-rose-500", data.active);
           favoriteToggle.classList.toggle("text-white", data.active);
           favoriteToggle.classList.toggle("bg-gray-100", !data.active);
           favoriteToggle.classList.toggle("text-gray-500", !data.active);

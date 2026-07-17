@@ -5,14 +5,14 @@ compatibility_date = "2024-09-23"
 [[d1_databases]]
 binding = "DB"
 database_name = "surikata-db"
-database_id = "REPLACE_WITH_D1_DATABASE_ID"
+database_id = "cededbb9-7582-406a-97c3-25048e57d581"
 
 [triggers]
 crons = ["*/15 * * * *"]
 
 [vars]
 # Override in production with: wrangler secret put JWT_SECRET
-JWT_SECRET = "dev-only-insecure-secret-change-me"
+JWT_SECRET = "n9sCUOKqpl3OiEOQKGnWDcKML14kJICuOKP9LAZawda"
 
 [assets]
 directory = "./public"

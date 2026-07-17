@@ -6,8 +6,8 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev --local --persist-to .wrangler/state --test-scheduled",
-    "db:migrate:local": "wrangler d1 execute surikata-db --local --file=./migrations/0001_init.sql",
-    "db:migrate:remote": "wrangler d1 execute surikata-db --remote --file=./migrations/0001_init.sql",
+    "db:migrate:local": "wrangler d1 execute surikata-db --local --file=./migrations/0001_init.sql && wrangler d1 execute surikata-db --local --file=./migrations/0002_image_scrape_flag.sql",
+    "db:migrate:remote": "wrangler d1 execute surikata-db --remote --file=./migrations/0001_init.sql && wrangler d1 execute surikata-db --remote --file=./migrations/0002_image_scrape_flag.sql",
     "build:css": "tailwindcss -i ./src/styles/input.css -o ./public/styles.css --minify",
     "watch:css": "tailwindcss -i ./src/styles/input.css -o ./public/styles.css --watch",
     "deploy": "wrangler deploy",
