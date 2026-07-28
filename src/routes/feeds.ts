@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import type { Env } from "../types";
 import { layout } from "../views/layout";
 import { renderArticleList, type ArticleCardData } from "../views/article-card";
+import { t } from "../i18n";
 
 export const feedRoutes = new Hono<{ Bindings: Env }>();
 
@@ -172,14 +173,14 @@ async function getArticlesForFilters(
 }
 
 function renderChips(sources: { feed_url: string; feed_name: string }[], activeSource: string): string {
-  const allChip = `<button type="button" class="chip flex-shrink-0 px-4 py-1.5 rounded-full text-sm font-medium ${activeSource === "all" ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600"}" data-source="all">All sources</button>`;
+  const allChip = `<button type="button" class="chip flex-shrink-0 px-4 py-1.5 rounded-full text-sm font-medium ${activeSource === "all" ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600"}" data-source="all">${t.feed.allSources}</button>`;
   const chips = sources
     .map(
       (s) =>
         `<button type="button" class="chip flex-shrink-0 px-4 py-1.5 rounded-full text-sm font-medium ${activeSource === s.feed_url ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600"}" data-source="${s.feed_url}">${s.feed_name}</button>`
     )
     .join("");
-  return `<div class="flex gap-2 overflow-x-auto px-4 py-3 -mx-4 scrollbar-hide">${allChip}${chips}</div>`;
+  return `<div class="flex gap-2 overflow-x-auto px-4 py-3 scrollbar-hide">${allChip}${chips}</div>`;
 }
 
 feedRoutes.get("/", async (c) => {
@@ -198,10 +199,10 @@ feedRoutes.get("/", async (c) => {
     <div class="sticky top-0 md:top-[57px] z-10 bg-gray-50/95 backdrop-blur border-b border-gray-200">
       ${renderChips(sources, filters.source)}
       <div class="flex items-center px-4 pb-3 text-sm overflow-x-auto scrollbar-hide">
-        <button type="button" id="tab-new" class="tab-btn px-3 py-1 whitespace-nowrap border-r border-gray-200 ${filters.view === "new" ? "text-gray-900 font-semibold" : "text-gray-500"}" data-view="new">New Articles</button>
-        <button type="button" id="tab-readlater" class="tab-btn px-3 py-1 whitespace-nowrap border-r border-gray-200 ${filters.view === "readlater" ? "text-gray-900 font-semibold" : "text-gray-500"}" data-view="readlater">For Later</button>
-        <button type="button" id="tab-favorites" class="tab-btn px-3 py-1 whitespace-nowrap border-r border-gray-200 ${filters.view === "favorites" ? "text-gray-900 font-semibold" : "text-gray-500"}" data-view="favorites">Favourites</button>
-        <button type="button" id="tab-read" class="tab-btn px-3 py-1 whitespace-nowrap ${filters.view === "read" ? "text-gray-900 font-semibold" : "text-gray-500"}" data-view="read">Already Read</button>
+        <button type="button" id="tab-new" class="tab-btn px-3 py-1 whitespace-nowrap border-r border-gray-200 ${filters.view === "new" ? "text-gray-900 font-semibold" : "text-gray-500"}" data-view="new">${t.tabs.new}</button>
+        <button type="button" id="tab-readlater" class="tab-btn px-3 py-1 whitespace-nowrap border-r border-gray-200 ${filters.view === "readlater" ? "text-gray-900 font-semibold" : "text-gray-500"}" data-view="readlater">${t.tabs.readLater}</button>
+        <button type="button" id="tab-favorites" class="tab-btn px-3 py-1 whitespace-nowrap border-r border-gray-200 ${filters.view === "favorites" ? "text-gray-900 font-semibold" : "text-gray-500"}" data-view="favorites">${t.tabs.favorites}</button>
+        <button type="button" id="tab-read" class="tab-btn px-3 py-1 whitespace-nowrap ${filters.view === "read" ? "text-gray-900 font-semibold" : "text-gray-500"}" data-view="read">${t.tabs.read}</button>
       </div>
     </div>
     <div id="feed-list" class="p-4">
@@ -211,7 +212,7 @@ feedRoutes.get("/", async (c) => {
 
   return c.html(
     layout({
-      title: "Feed",
+      title: t.tabs.new,
       activeNav: "home",
       username: user.username,
       bodyHtml: body,

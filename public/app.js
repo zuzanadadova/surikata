@@ -1,5 +1,22 @@
 // Surikata frontend interactivity — no build step, plain fetch-based AJAX.
 
+// --- Header: profile dropdown toggle ---
+(function () {
+  const menuBtn = document.getElementById("profile-menu-btn");
+  const dropdown = document.getElementById("profile-menu-dropdown");
+  const menu = document.getElementById("profile-menu");
+  if (!menuBtn || !dropdown || !menu) return;
+
+  menuBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    dropdown.classList.toggle("hidden");
+  });
+
+  document.addEventListener("click", (e) => {
+    if (!menu.contains(e.target)) dropdown.classList.add("hidden");
+  });
+})();
+
 // --- Admin page: preset toggles, feed discovery, add/remove custom feeds ---
 (function () {
   const presetToggles = document.querySelectorAll(".preset-toggle");
@@ -48,66 +65,73 @@
     });
   }
 
-  const refreshNowBtn = document.getElementById("refresh-now-btn");
-  if (refreshNowBtn) {
-    refreshNowBtn.addEventListener("click", async () => {
-      refreshNowBtn.disabled = true;
-      refreshNowBtn.textContent = "Refreshing…";
-      try {
-        const res = await fetch("/admin/feeds/refresh", { method: "POST" });
-        const data = await res.json();
-        alert(`Refetched ${data.feedsAttempted} feeds, upserted ${data.articlesUpserted} articles, scraped ${data.imagesScraped} fallback images.`);
-        location.reload();
-      } finally {
-        refreshNowBtn.disabled = false;
-        refreshNowBtn.textContent = "Refresh Now";
-      }
-    });
-  }
-
   const discoverBtn = document.getElementById("discover-btn");
   const customUrlInput = document.getElementById("custom-url");
   const resultsEl = document.getElementById("discover-results");
+
+  // Fallback guess (publisher name from domain) used only when the feed's
+  // own <channel>/<feed> title couldn't be extracted server-side.
+  function guessPublisherName(inputUrl) {
+    try {
+      let host = new URL(/^https?:\/\//i.test(inputUrl) ? inputUrl : "https://" + inputUrl).hostname;
+      host = host.replace(/^www\./, "");
+      const mainPart = host.split(".").slice(0, -1).join(".") || host;
+      return mainPart
+        .split(/[.\-_]/)
+        .filter(Boolean)
+        .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+        .join(" ");
+    } catch {
+      return "";
+    }
+  }
 
   if (discoverBtn && customUrlInput && resultsEl) {
     discoverBtn.addEventListener("click", async () => {
       const url = customUrlInput.value.trim();
       if (!url) return;
       discoverBtn.disabled = true;
-      discoverBtn.textContent = "Searching…";
+      discoverBtn.textContent = "Načítavam…";
       resultsEl.innerHTML = "";
       try {
-        const res = await fetch("/admin/feeds/discover", {
+        const res = await fetch("/admin/feeds/preview", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ url }),
         });
         const data = await res.json();
-        const feeds = data.feeds || [];
-        if (feeds.length === 0) {
-          resultsEl.innerHTML = `<div class="text-sm text-gray-400">No feed found at that address.</div>`;
-        } else {
-          feeds.forEach((feed) => {
-            const row = document.createElement("div");
-            row.className = "flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2";
-            row.innerHTML = `
-              <div class="text-sm text-gray-700 truncate pr-2">${feed.title || feed.url}</div>
-              <button type="button" class="add-discovered flex-shrink-0 text-sm font-medium text-gray-900 bg-white border border-gray-300 rounded-md px-3 py-1">Add</button>
-            `;
-            row.querySelector(".add-discovered").addEventListener("click", async () => {
-              await fetch("/admin/feeds/add", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ url: feed.url, name: feed.title || feed.url }),
-              });
-              location.reload();
-            });
-            resultsEl.appendChild(row);
-          });
+        if (!data.ok) {
+          resultsEl.innerHTML = `<div class="text-sm text-red-500">Na tejto adrese sa nepodarilo nájsť platný RSS/Atom zdroj.</div>`;
+          return;
         }
+
+        const row = document.createElement("div");
+        row.className = "flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2";
+        const guessedName = data.name || guessPublisherName(data.url);
+        row.innerHTML = `
+          <input type="text" class="discovered-name flex-1 min-w-0 text-sm text-gray-700 bg-white border border-gray-300 rounded-md px-2 py-1" value="${guessedName.replace(/"/g, "&quot;")}" />
+          <button type="button" class="add-discovered flex-shrink-0 text-sm font-medium text-gray-900 bg-white border border-gray-300 rounded-md px-3 py-1">Pridať</button>
+        `;
+        row.querySelector(".add-discovered").addEventListener("click", async (e) => {
+          const btn = e.currentTarget;
+          btn.disabled = true;
+          const nameInput = row.querySelector(".discovered-name");
+          const name = nameInput.value.trim() || data.url;
+          const addRes = await fetch("/admin/feeds/add", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ url: data.url, name }),
+          });
+          const addData = await addRes.json();
+          if (addData.fetchFailed) {
+            alert("Zdroj bol pridaný — články sa zobrazia, hneď ako bude dostupný.");
+          }
+          location.reload();
+        });
+        resultsEl.appendChild(row);
       } finally {
         discoverBtn.disabled = false;
-        discoverBtn.textContent = "Find Feed";
+        discoverBtn.textContent = "Načítať zdroj";
       }
     });
   }

@@ -1,3 +1,5 @@
+import { t } from "../i18n";
+
 export interface ArticleCardData {
   link: string;
   title: string;
@@ -37,10 +39,10 @@ export function renderArticleCard(a: ArticleCardData): string {
         ${a.imageUrl ? `<img src="${escapeAttr(a.imageUrl)}" alt="" class="w-20 h-20 object-cover rounded-lg flex-shrink-0" loading="lazy" onerror="this.remove()" />` : ""}
       </div>
       <div class="flex items-center gap-2 mt-3">
-        <button type="button" class="btn-readlater flex items-center justify-center w-10 h-10 rounded-lg ${a.isReadLater ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-500"}" aria-label="Read later" title="Store for later">
+        <button type="button" class="btn-readlater flex items-center justify-center w-10 h-10 rounded-lg ${a.isReadLater ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-500"}" aria-label="${t.article.readLater}" title="${t.article.readLater}">
           <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="${a.isReadLater ? "currentColor" : "none"}" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
         </button>
-        <button type="button" class="btn-favorite flex items-center justify-center w-10 h-10 rounded-lg ${a.isFavorite ? "bg-rose-500 text-white" : "bg-gray-100 text-gray-500"}" aria-label="Favourite" title="Favourite">
+        <button type="button" class="btn-favorite flex items-center justify-center w-10 h-10 rounded-lg ${a.isFavorite ? "bg-rose-500 text-white" : "bg-gray-100 text-gray-500"}" aria-label="${t.article.favorite}" title="${t.article.favorite}">
           <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="${a.isFavorite ? "currentColor" : "none"}" stroke="currentColor" stroke-width="2"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21.2l7.8-7.8 1-1a5.5 5.5 0 0 0 0-7.8z"/></svg>
         </button>
       </div>
@@ -51,9 +53,9 @@ function dayLabel(date: Date): string {
   const now = new Date();
   const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
   const diffDays = Math.round((startOfDay(now) - startOfDay(date)) / 86400000);
-  if (diffDays === 0) return `Today, ${date.toLocaleDateString("en-US", { month: "long", day: "numeric" })}`;
-  if (diffDays === 1) return `Yesterday, ${date.toLocaleDateString("en-US", { month: "long", day: "numeric" })}`;
-  return date.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+  if (diffDays === 0) return `${t.feed.today}, ${date.toLocaleDateString("sk-SK", { month: "long", day: "numeric" })}`;
+  if (diffDays === 1) return `${t.feed.yesterday}, ${date.toLocaleDateString("sk-SK", { month: "long", day: "numeric" })}`;
+  return date.toLocaleDateString("sk-SK", { weekday: "long", month: "long", day: "numeric" });
 }
 
 function groupKey(a: ArticleCardData): string {
@@ -65,7 +67,7 @@ function groupKey(a: ArticleCardData): string {
 
 export function renderArticleList(articles: ArticleCardData[]): string {
   if (articles.length === 0) {
-    return `<div class="text-center text-gray-400 text-sm py-16">No articles here yet.</div>`;
+    return `<div class="text-center text-gray-400 text-sm py-16">${t.feed.empty}</div>`;
   }
 
   const html: string[] = [];
@@ -77,7 +79,7 @@ export function renderArticleList(articles: ArticleCardData[]): string {
       currentKey = key;
       const label =
         key === "undated"
-          ? "Undated"
+          ? t.feed.undated
           : dayLabel(new Date(a.publishedAt as string));
       if (html.length > 0) html.push(`</div>`);
       html.push(

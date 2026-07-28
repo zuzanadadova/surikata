@@ -2,8 +2,9 @@ import { Hono } from "hono";
 import type { Env } from "../types";
 import { PRESET_FEEDS } from "../types";
 import { layout } from "../views/layout";
-import { discoverFeeds, looksLikeFeedUrl } from "../rss/discover";
-import { handleScheduled } from "../scheduled";
+import { fetchFeedXml, extractChannelTitle } from "../rss/parser";
+import { upsertArticlesForFeed } from "../scheduled";
+import { t } from "../i18n";
 
 export const adminRoutes = new Hono<{ Bindings: Env }>();
 
@@ -39,7 +40,7 @@ async function renderAdminPage(
 
   const selectAllHtml = `
     <label class="flex items-center justify-between py-3 border-b border-gray-200">
-      <span class="text-sm font-semibold text-gray-500 uppercase tracking-wide">Select All</span>
+      <span class="text-sm font-semibold text-gray-500 uppercase tracking-wide">${t.admin.selectAll}</span>
       <input type="checkbox" id="select-all-sources" class="w-5 h-5 accent-gray-900" ${allChecked ? "checked" : ""} />
     </label>`;
 
@@ -49,20 +50,19 @@ async function renderAdminPage(
 
       <section>
         <div class="flex items-center justify-between mb-1">
-          <h2 class="text-sm font-semibold text-gray-500 uppercase tracking-wide">Select Sources</h2>
-          <button type="button" id="refresh-now-btn" class="text-xs font-medium text-gray-900 bg-white border border-gray-300 rounded-md px-3 py-1.5 hover:bg-gray-50">Refresh Now</button>
+          <h2 class="text-sm font-semibold text-gray-500 uppercase tracking-wide">${t.admin.selectSources}</h2>
         </div>
-        <p class="text-sm text-gray-500 mb-2">Here you can choose the newspapers and journals that will appear in your feed.</p>
+        <p class="text-sm text-gray-500 mb-2">${t.admin.selectSourcesDesc}</p>
         <div class="bg-white rounded-xl border border-gray-200 px-4">${selectAllHtml}${sourcesHtml}</div>
       </section>
 
       <section>
-        <h2 class="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-1">Add Custom Feed</h2>
-        <p class="text-sm text-gray-500 mb-2">Didn't find your favourite newspaper? Add its RSS or URL address and click find feed.</p>
+        <h2 class="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-1">${t.admin.addCustomFeed}</h2>
+        <p class="text-sm text-gray-500 mb-2">${t.admin.addCustomFeedDesc}</p>
         <div class="bg-white rounded-xl border border-gray-200 p-4 space-y-3">
-          <input id="custom-url" type="text" placeholder="Paste a website or RSS feed URL"
+          <input id="custom-url" type="text" placeholder="${t.admin.urlPlaceholder}"
             class="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-900 text-sm" />
-          <button type="button" id="discover-btn" class="w-full py-2.5 rounded-lg bg-gray-900 text-white text-sm font-medium hover:bg-gray-800">Find Feed</button>
+          <button type="button" id="discover-btn" class="w-full py-2.5 rounded-lg bg-gray-900 text-white text-sm font-medium hover:bg-gray-800">${t.admin.fetchFeed}</button>
           <div id="discover-results" class="space-y-2"></div>
         </div>
       </section>
@@ -71,7 +71,7 @@ async function renderAdminPage(
 
   return c.html(
     layout({
-      title: "Manage Sources",
+      title: t.admin.title,
       activeNav: "admin",
       username: user.username,
       bodyHtml: body,
@@ -110,39 +110,22 @@ adminRoutes.post("/admin/feeds/toggle-preset", async (c) => {
   return c.json({ ok: true });
 });
 
-adminRoutes.post("/admin/feeds/refresh", async (c) => {
-  const user = c.get("user");
-
-  await c.env.DB.prepare("DELETE FROM articles").run();
-
-  const subscribeStmt = c.env.DB.prepare(
-    "INSERT INTO user_feeds (user_id, feed_url, feed_name) VALUES (?, ?, ?) ON CONFLICT (user_id, feed_url) DO NOTHING"
-  );
-  await c.env.DB.batch(PRESET_FEEDS.map((f) => subscribeStmt.bind(user.id, f.url, f.name)));
-
-  const summary = await handleScheduled(c.env);
-  return c.json({ ok: true, ...summary });
-});
-
-adminRoutes.post("/admin/feeds/discover", async (c) => {
+adminRoutes.post("/admin/feeds/preview", async (c) => {
   const { url } = await c.req.json<{ url: string }>();
-  if (!url) return c.json({ error: "url required" }, 400);
+  if (!url) return c.json({ ok: false, error: "url required" }, 400);
 
   let candidateUrl = url.trim();
   if (!/^https?:\/\//i.test(candidateUrl)) {
     candidateUrl = "https://" + candidateUrl;
   }
 
-  if (looksLikeFeedUrl(candidateUrl)) {
-    return c.json({ feeds: [{ url: candidateUrl, title: null }] });
+  try {
+    const xml = await fetchFeedXml(candidateUrl);
+    const name = extractChannelTitle(xml);
+    return c.json({ ok: true, url: candidateUrl, name });
+  } catch (err) {
+    return c.json({ ok: false, error: err instanceof Error ? err.message : "Fetch failed" }, 200);
   }
-
-  const feeds = await discoverFeeds(candidateUrl);
-  if (feeds.length === 0) {
-    // Fall back: maybe it actually was a direct feed URL that didn't match the heuristic.
-    return c.json({ feeds: [{ url: candidateUrl, title: null }], fallback: true });
-  }
-  return c.json({ feeds });
 });
 
 adminRoutes.post("/admin/feeds/add", async (c) => {
@@ -156,7 +139,9 @@ adminRoutes.post("/admin/feeds/add", async (c) => {
     .bind(user.id, url, name || url)
     .run();
 
-  return c.json({ ok: true });
+  const ingestResult = await upsertArticlesForFeed(c.env, url);
+
+  return c.json({ ok: true, articleCount: ingestResult.articleCount, fetchFailed: !ingestResult.ok });
 });
 
 adminRoutes.post("/admin/feeds/remove", async (c) => {

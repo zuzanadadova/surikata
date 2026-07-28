@@ -118,7 +118,27 @@ function extractImage(block: string): string | null {
 }
 
 function isAtom(xml: string): boolean {
-  return /<feed[\s>]/i.test(xml) && /xmlns=["']http:\/\/www\.w3\.org\/2005\/Atom["']/i.test(xml);
+  const feedOpenTagMatch = xml.match(/<feed\b[^>]*>/i);
+  if (!feedOpenTagMatch) return false;
+  return /xmlns=["']http:\/\/www\.w3\.org\/2005\/Atom["']/i.test(feedOpenTagMatch[0]);
+}
+
+// Extracts the feed-level (not item/entry-level) title: RSS 2.0's
+// <channel><title> or Atom's <feed><title>, used as the auto-detected
+// publisher/source name when a user adds a custom feed by URL.
+export function extractChannelTitle(xml: string): string | null {
+  try {
+    if (isAtom(xml)) {
+      const firstEntryIdx = xml.search(/<entry[\s>]/i);
+      const head = firstEntryIdx === -1 ? xml : xml.slice(0, firstEntryIdx);
+      return extractTag(head, "title");
+    }
+    const channelMatch = xml.match(/<channel[\s>][\s\S]*?(?=<item[\s>]|<\/channel>)/i);
+    const head = channelMatch ? channelMatch[0] : xml;
+    return extractTag(head, "title");
+  } catch {
+    return null;
+  }
 }
 
 function parseRssItems(xml: string): ParsedArticle[] {
@@ -168,11 +188,36 @@ export function parseFeed(xml: string): ParsedArticle[] {
   }
 }
 
+const FETCH_TIMEOUT_MS = 10_000;
+
+// Fetches a feed URL with a timeout, returning the raw XML text or throwing
+// a descriptive Error on network failure / non-2xx / timeout. Callers that
+// need graceful degradation (e.g. the scheduled job) should catch this.
+export async function fetchFeedXml(feedUrl: string): Promise<string> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  try {
+    const res = await fetch(feedUrl, {
+      headers: { "User-Agent": "SurikataRSSReader/1.0" },
+      signal: controller.signal,
+    });
+    if (!res.ok) throw new Error(`Feed request failed with status ${res.status}`);
+    return await res.text();
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new Error("Feed request timed out");
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 export async function fetchAndParseFeed(feedUrl: string): Promise<ParsedArticle[]> {
-  const res = await fetch(feedUrl, {
-    headers: { "User-Agent": "SurikataRSSReader/1.0" },
-  });
-  if (!res.ok) return [];
-  const xml = await res.text();
-  return parseFeed(xml);
+  try {
+    const xml = await fetchFeedXml(feedUrl);
+    return parseFeed(xml);
+  } catch {
+    return [];
+  }
 }
